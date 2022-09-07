@@ -35,9 +35,12 @@ def load_map():
 
 @st.cache()
 def load_model():
-    with open('lr_model', 'rb') as f:
-        lr = pickle.load(f)
-    return lr
+
+    with open('rr_model', 'rb') as f:
+        rr = pickle.load(f)
+    with open('scaler', 'rb') as f:
+        scaler = pickle.load(f)
+    return rr, scaler
 
 
 # function to apply filters
@@ -74,17 +77,6 @@ def filter_data(neighborhood_selection=None, hometype_selection=None, bathroom_s
     df_final = df_final.astype(convert_dict)
 
     return df_final
-
-
-# function to spit out model results
-@st.cache()
-def print_results(inputs, intercept, coef):
-    result = 0
-    for key in inputs:
-        result += inputs[key] * coef[key]
-    result += intercept
-
-    return e**result
 
 
 with header:
@@ -286,7 +278,7 @@ with eda:
         """
         * Living area, number of bedrooms, and number of bathrooms is positively correlated with sales price.
         * Living area has the highest correlation to sales price, followed by number of bathrooms and number of bedrooms.
-        * There is also high correlation between the predictor variables which suggests there can be concerns of multicollinearity in the regression model.
+        * There is also high correlation between the predictor variables which suggests there can be concerns of multicollinearity if fitting a regression model.
         * Boxplot visuals show how sales prices vary by neighborhood and home type.
         """
 
@@ -296,7 +288,7 @@ with model:
 
     df_model = df[['bathrooms', 'bedrooms', 'living_area', 'home_type', 'neighborhood']]
 
-    with st.expander(label='Predicting Housing Prices Using Regression', expanded=True):
+    with st.expander(label='Predicting Home Sales Prices Using Ridge Regression', expanded=True):
         st.markdown(
             """
         <style>
@@ -311,8 +303,8 @@ with model:
 
         with st.form(key='input_form'):
             neighborhood_input = st.selectbox('Neighborhood',options=np.sort(df['neighborhood'].unique()).tolist())
-            bathroom_input = st.selectbox('Bathroom', options=[1,2,3,4,5,6,7,8,9,10])
-            bedroom_input = st.selectbox('Bedroom', options=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+            bathroom_input = st.selectbox('Bathrooms', options=[1,2,3,4,5,6,7,8,9,10])
+            bedroom_input = st.selectbox('Bedrooms', options=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
             hometype_input = st.selectbox('Home Type', options=df['home_type'].unique().tolist())
             livingarea_input = st.number_input('Living Area in Square Feet', min_value=300)
             submitted_inputs = st.form_submit_button(label='Submit Inputs')
@@ -325,23 +317,24 @@ with model:
             'neighborhood': [neighborhood_input]
         }
 
+        rr, scaler = load_model()
+
         df_input = pd.DataFrame(input_dict)
         df_userinput = pd.concat([df_model, df_input], ignore_index=True)
 
         X = pd.get_dummies(df_userinput, drop_first=True)
-        X = X.iloc[-1:].reset_index(drop=True)
-        user_input = dict(X.iloc[0])
+        X_rr = X.iloc[-1:].reset_index(drop=True)
+        X_rr[['bathrooms', 'bedrooms', 'living_area']] = scaler.transform(X_rr[['bathrooms', 'bedrooms', 'living_area']])
 
-        lr = load_model()
-        intercept = lr.intercept_
-        coef_dictionary = dict(zip(X, lr.coef_))
-
-
-        estimated_price = "${:,.0f}".format(print_results(user_input, intercept, coef_dictionary))
-        st.write("Estimated sales price based on inputs: "+estimated_price)
+        rr_estimated_price = "${:,.0f}".format(e**(np.dot(X_rr.iloc[0].to_numpy(), rr.coef_)+rr.intercept_))
+        st.write("Using ridge regression, the estimated sales price based on inputs: "+rr_estimated_price)
 
 
+        st.markdown('**Notes**')
         """
-        
-        Other important features missing from the model include distance from train station, expenses such as property taxes, maintenance fees, and year of construction to name a few.  
+        * Due to the high correlation between predictor variables (living area, number of bedrooms, and number of bathrooms), a regression model would suffer from multicollinearity issues.
+        * Multicollinearity is a problem because a change in one variable causes changes to others, so model results might fluctuate significantly given a small change in the data or model. A regression model would also likely be overfitting the training dataset. 
+        * I used ridge regression to help tackle the multicollinearity issues. Ridge regression performs L2 regularization by penalizing large coefficients in the model. This leads to a model with a higher bias, but lower variance relative to a regression model, thus would be better in generalizing predictions.  
+        * Other important features missing from the model include distance from train station, yearly property taxes, monthly maintenance fees, and year of construction to name a few.
         """
+
